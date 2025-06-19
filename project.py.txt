@@ -1,0 +1,290 @@
+import csv
+from datetime import datetime
+
+class User:
+    def __init__(self, name, phone):
+        self.name = name
+        self.phone = phone
+        self.balance = 0  
+        self.transactions = []  
+
+    def add_transaction(self, payer, participants, amount, description):
+        transaction_detail = f"{payer} paid {amount:.2f} for {', '.join(participants)} - {description}"
+        self.transactions.append(transaction_detail)
+
+    def details(self):
+        print(f"Name: {self.name}, Phone: {self.phone}, Balance: {self.balance:.2f}")
+        print("Transaction History:")
+        for transaction in self.transactions:
+            print("  -", transaction)
+
+
+class Node:
+    def __init__(self, user):
+        self.user = user
+        self.next = None
+
+
+class UserLinkedList:
+    def __init__(self):
+        self.head = None
+
+    def add_user(self, user):
+        new_node = Node(user)
+        if not self.head:
+            self.head = new_node
+        else:
+            current = self.head
+            while current.next:
+                current = current.next
+            current.next = new_node
+
+    def find_user(self, name):
+        current = self.head
+        while current:
+            if current.user.name == name:
+                return current.user
+            current = current.next
+        return None
+
+    def display_users(self):
+        current = self.head
+        while current:
+            current.user.details()
+            current = current.next
+
+
+class TransactionQueue:
+    def __init__(self):
+        self.queue = []
+
+    def enqueue(self, transaction):
+        self.queue.append(transaction)
+
+    def dequeue(self):
+        if self.queue:
+            return self.queue.pop(0)
+        return None
+
+    def is_empty(self):
+        return len(self.queue) == 0
+
+
+class Group:
+    def __init__(self):
+        self.users = UserLinkedList()
+        self.transactions = TransactionQueue()
+
+    def add_user(self, user_name=None, user_phone=None):
+        while True:
+            try:
+                user_name = input("Enter user name (or enter 0 to go back to menu): ").strip()
+                if user_name == '0':
+                    return
+                user_phone = input("Enter user phone number (or enter 0 to go back to menu): ").strip()
+                if user_phone == '0':
+                    return
+
+                if self.users.find_user(user_name) is None:
+                    user = User(user_name, user_phone)
+                    self.users.add_user(user)
+                    print(f"User {user_name} added to the group.")
+                else:
+                    print(f"{user_name} is already in the group.")
+            except Exception as e:
+                print(f"Error: {str(e)}")
+
+    def add_expense(self, payer, amount, description=""):
+        if payer == '0':
+            return
+        payer_user = self.users.find_user(payer)
+        if payer_user is None:
+            print("Payer is not in the group.")
+            add_new = input("Do you want to add this member to the group? (y/n or 0 to go back): ").strip().lower()
+            if add_new == '0' or add_new != 'y':
+                return
+            self.add_user(payer)
+
+        # Show current users and their balances
+        participants = []
+        self.users.display_users()
+
+        # Ask if the payer wants to pay for everyone or specific members
+        pay_for_all = input("Do you want to pay for all participants? (y/n): ").strip().lower()
+        
+        if pay_for_all == 'y':
+            current = self.users.head
+            while current:
+                participants.append(current.user.name)  # Pay for everyone
+                current = current.next
+        else:
+            while True:
+                participant_names = input("Enter participant's names (comma-separated) or 'done' to finish (or 0 to go back): ").strip()
+                if participant_names == '0':
+                    return
+                if participant_names == 'done':
+                    if participants:
+                        break
+                    else:
+                        print("At least one participant is required.")
+                        continue
+
+                participant_list = [name.strip() for name in participant_names.split(',')]
+                for name in participant_list:
+                    if self.users.find_user(name):
+                        participants.append(name)
+                    else:
+                        print(f"{name} is not in the group. Would you like to add them? (y/n or 0 to go back): ")
+                        add_option = input().strip().lower()
+                        if add_option == '0':
+                            return
+                        elif add_option == 'y':
+                            self.add_user(name)
+
+        # Ask for split type
+        split_type = input("Split type (equal/shares/percentage or 0 to go back): ").strip().lower()
+        if split_type == '0':
+            return
+        shares = None
+        if split_type in ['shares', 'percentage']:
+            try:
+                shares = [float(s) for s in input("Enter shares or percentages (comma-separated or 0 to go back): ").split(',')]
+                if '0' in shares:
+                    return
+            except ValueError:
+                print("Unsupported input, please enter correct input.")
+                return
+
+        # Calculate how much each participant should pay
+        share_distribution = self.calculate_split(amount, participants, split_type, shares)
+
+        # Update the payer's balance and record the transaction
+        payer_user.balance += amount  # Payer is credited with the amount they paid
+        payer_user.add_transaction(payer, participants, amount, description)  # Add transaction record
+        self.transactions.enqueue((payer, participants, amount, description))  # Add transaction to the queue
+
+        for participant, amount_owed in share_distribution.items():
+            if participant != payer:
+                participant_user = self.users.find_user(participant)
+                participant_user.balance -= amount_owed  # Update each participant's balance
+                participant_user.add_transaction(payer, [participant], amount_owed, description)  # Add transaction record
+
+    def calculate_split(self, amount, participants, split_type, shares=None):
+        if split_type == "equal":
+            split_amount = amount / len(participants)
+            return {p: split_amount for p in participants}
+        elif split_type == "shares" and shares:
+            total_shares = sum(shares)
+            return {p: (s / total_shares) * amount for p, s in zip(participants, shares)}
+        elif split_type == "percentage" and shares:
+            return {p: (s / 100) * amount for p, s in zip(participants, shares)}
+        else:
+            print("Invalid split type or shares input.")
+            return {}
+
+    def show_balances(self):
+        print("\n--- Current Balances ---")
+        current = self.users.head
+        while current:
+            user = current.user
+            if user.balance > 0:
+                print(f"{user.name} should receive money: {user.balance:.2f}")
+            elif user.balance < 0:
+                print(f"{user.name} should pay money: {abs(user.balance):.2f}")
+            else:
+                print(f"{user.name} has a balanced account: {user.balance:.2f}")
+            current = current.next
+        print("for more clarification select settle up.")
+
+    def export_transactions(self):
+        with open("transactions.csv", "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Payer", "Participants", "Amount", "Description"])
+            current = self.transactions.queue
+            for transaction in current:
+                writer.writerow(transaction)
+        print("Transactions exported to transactions.csv.")
+
+    def settle_up(self):
+        debts = {}
+        current = self.users.head
+        while current:
+            debts[current.user.name] = current.user.balance
+            current = current.next
+
+        creditors = sorted([(user, balance) for user, balance in debts.items() if balance > 0], key=lambda x: x[1], reverse=True)
+        debtors = sorted([(user, balance) for user, balance in debts.items() if balance < 0], key=lambda x: x[1])
+
+        print("\n--- Settle Up ---")
+        while creditors and debtors:
+            creditor, credit_amount = creditors.pop(0)
+            debtor, debt_amount = debtors.pop(0)
+            amount_to_settle = min(credit_amount, -debt_amount)
+
+            # Display the settlement as requested
+            print(f"{debtor} needs to pay {creditor} an amount of {amount_to_settle:.2f}")
+
+            # Adjust balances after settling this portion
+            credit_amount -= amount_to_settle
+            debt_amount += amount_to_settle
+
+            # Update creditors and debtors lists as needed
+            if credit_amount > 0:
+                creditors.insert(0, (creditor, credit_amount))
+            if debt_amount < 0:
+                debtors.insert(0, (debtor, debt_amount))
+
+    def display_menu(self):
+        while True:
+            print("\n--- Menu ---")
+            print("1. Add User")
+            print("2. Add Expense")
+            print("3. Show Balances")
+            print("4. Settle Up")
+            print("5. Show User Details")
+            print("6. Export Transactions to CSV")
+            print("7. Exit")
+            choice = input("Choose an option (or enter 0 to go back): ")
+
+            if choice == '0' or choice == '7':
+                print("Exiting...")
+                break
+            elif choice == '1':
+                self.add_user()
+            elif choice == '2':
+                try:
+                    payer = input("Enter payer's name (or 0 to go back): ").strip()
+                    if payer == '0':
+                        continue
+                    amount = input("Enter amount (or 0 to go back): ")
+                    if amount == '0':
+                        continue
+                    amount = float(amount)
+                    description = input("Enter a description for the expense (or 0 to go back): ")
+                    if description == '0':
+                        continue
+                    self.add_expense(payer, amount, description)
+                except ValueError:
+                    print("Unsupported input, please enter correct input.")
+            elif choice == '3':
+                self.show_balances()
+            elif choice == '4':
+                self.settle_up()
+            elif choice == '5':
+                user_name = input("Enter user name to search (or 0 to go back): ").strip()
+                if user_name == '0':
+                    continue
+                user = self.users.find_user(user_name)
+                if user:
+                    user.details()
+                else:
+                    print(f"User {user_name} not found.")
+            elif choice == '6':
+                self.export_transactions()
+            else:
+                print("Unsupported input, please enter correct input.")
+
+
+# Initialize and start the application
+group = Group()
+group.display_menu()
